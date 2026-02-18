@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KaiOS EPUB Reader</title>
+
+<style>
+body {
+  margin:0;
+  background:#111;
+  color:#fff;
+  font-family:sans-serif;
+  display:flex;
+  flex-direction:column;
+  height:100vh;
+}
+header {
+  background:#222;
+  padding:8px;
+  text-align:center;
+  font-weight:bold;
+}
+#fileInput {
+  padding:6px;
+  background:#1a1a1a;
+  color:white;
+}
+#controls {
+  display:flex;
+  background:#1a1a1a;
+}
+button {
+  flex:1;
+  padding:6px;
+  font-size:14px;
+}
+#reader {
+  flex:1;
+  overflow:auto;
+  padding:10px;
+  line-height:1.6;
+  font-size:16px;
+}
+</style>
+
+</head>
+<body>
+
+<header>EPUB Reader</header>
+
+<input type="file" id="fileInput" accept=".epub">
+
+<div id="controls">
+  <button id="prevBtn">◀</button>
+  <button id="nextBtn">▶</button>
+</div>
+
+<div id="reader"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+<script>
+var zip, spine=[], current=0;
+var reader=document.getElementById("reader");
+
+document.getElementById("fileInput").addEventListener("change",function(e){
+  var file=e.target.files[0];
+  if(!file) return;
+  JSZip.loadAsync(file).then(function(z){
+    zip=z;
+    loadContainer();
+  });
+});
+
+function loadContainer(){
+  zip.file("META-INF/container.xml").async("string").then(function(txt){
+    var xml=new DOMParser().parseFromString(txt,"application/xml");
+    var opf=xml.querySelector("rootfile").getAttribute("full-path");
+    loadOPF(opf);
+  });
+}
+
+function loadOPF(path){
+  zip.file(path).async("string").then(function(txt){
+    var xml=new DOMParser().parseFromString(txt,"application/xml");
+    var manifest={};
+    xml.querySelectorAll("manifest item").forEach(function(i){
+      manifest[i.getAttribute("id")]=i.getAttribute("href");
+    });
+    spine=[];
+    xml.querySelectorAll("spine itemref").forEach(function(i){
+      spine.push(manifest[i.getAttribute("idref")]);
+    });
+    current=0;
+    render();
+  });
+}
+
+function render(){
+  if(!spine[current]) return;
+  zip.file(spine[current]).async("string").then(function(content){
+    reader.innerHTML=content;
+    reader.scrollTop=0;
+  });
+}
+
+document.getElementById("nextBtn").onclick=function(){
+  if(current<spine.length-1){current++;render();}
+};
+
+document.getElementById("prevBtn").onclick=function(){
+  if(current>0){current--;render();}
+};
+
+document.addEventListener("keydown",function(e){
+  if(e.key==="ArrowRight") document.getElementById("nextBtn").click();
+  if(e.key==="ArrowLeft") document.getElementById("prevBtn").click();
+  if(e.key==="ArrowUp") reader.scrollTop-=50;
+  if(e.key==="ArrowDown") reader.scrollTop+=50;
+});
+</script>
+
+</body>
+</html>
