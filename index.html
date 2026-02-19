@@ -3,128 +3,210 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>KaiOS EPUB Reader</title>
+<title>KaiOS EPUB Library</title>
 
 <style>
 body {
   margin:0;
-  background:#111;
-  color:#fff;
   font-family:sans-serif;
   display:flex;
   flex-direction:column;
   height:100vh;
+  background:#111;
+  color:#fff;
+}
+.light {
+  background:#f5f5f5;
+  color:#111;
 }
 header {
-  background:#222;
-  padding:8px;
+  padding:6px;
   text-align:center;
   font-weight:bold;
+  font-size:14px;
+}
+#bookshelf {
+  flex:1;
+  overflow:auto;
+  padding:6px;
+}
+.bookItem {
+  padding:6px;
+  border-bottom:1px solid #444;
+  font-size:13px;
 }
 #controls {
   display:flex;
-  background:#1a1a1a;
 }
 button {
   flex:1;
-  padding:2px;
-  font-size:3px;
+  padding:4px;
+  font-size:12px;
+  margin:1px;
 }
 #reader {
   flex:1;
   overflow:auto;
-  padding:10px;
+  padding:8px;
   line-height:1.6;
   font-size:16px;
+  display:none;
+}
+#topBar {
+  display:none;
 }
 </style>
 </head>
 <body>
 
-<header>EPUB Reader</header>
+<header id="header">EPUB Library</header>
 
-<div id="controls">
-  <button id="loadBtn">Load Book</button>
-  <button id="prevBtn">◀</button>
-  <button id="nextBtn">▶</button>
+<div id="bookshelf"></div>
+
+<div id="topBar">
+  <div id="controls">
+    <button id="backBtn">Lib</button>
+    <button id="prevBtn">◀</button>
+    <button id="nextBtn">▶</button>
+    <button id="fontBtn">A+</button>
+    <button id="themeBtn">☀</button>
+  </div>
 </div>
 
-<div id="reader">Press Load Book</div>
+<div id="reader"></div>
 
 <script src="jszip.min.js"></script>
 
 <script>
-var zip, spine=[], current=0;
+var books = [
+  { title: "Book One", file: "book1.epub" },
+  { title: "Book Two", file: "book2.epub" }
+];
+
+var currentBookIndex = 0;
+var spine=[], currentChapter=0, zip=null;
+var fontSize = parseInt(localStorage.getItem("fontSize")) || 16;
+var theme = localStorage.getItem("theme") || "dark";
+
 var reader=document.getElementById("reader");
+var bookshelf=document.getElementById("bookshelf");
+var header=document.getElementById("header");
+var topBar=document.getElementById("topBar");
 
-document.getElementById("loadBtn").onclick=function(){
-  loadBook();
-};
+reader.style.fontSize = fontSize + "px";
+if(theme==="light") document.body.classList.add("light");
 
-function loadBook(){
+// Build bookshelf
+books.forEach(function(book, index){
+  var div=document.createElement("div");
+  div.className="bookItem";
+  div.textContent=book.title;
+  div.onclick=function(){ openBook(index); };
+  bookshelf.appendChild(div);
+});
+
+// Restore last book
+var savedBook = localStorage.getItem("lastBook");
+var savedChapter = localStorage.getItem("lastChapter");
+if(savedBook !== null){
+  openBook(parseInt(savedBook), parseInt(savedChapter));
+}
+
+function openBook(index, chapter){
+  currentBookIndex=index;
+  currentChapter=chapter||0;
+  localStorage.setItem("lastBook", index);
+
+  bookshelf.style.display="none";
+  reader.style.display="block";
+  topBar.style.display="block";
+  header.textContent=books[index].title;
+
+  loadBook(books[index].file);
+}
+
+function loadBook(filename){
   reader.innerHTML="Loading...";
-  
-  fetch("book.epub")
-  .then(function(response){
-    return response.arrayBuffer();
-  })
-  .then(function(data){
-    return JSZip.loadAsync(data);
-  })
-  .then(function(z){
+  spine=[];
+  zip=null;
+
+  fetch(filename)
+  .then(res=>res.arrayBuffer())
+  .then(data=>JSZip.loadAsync(data))
+  .then(z=>{
     zip=z;
     return zip.file("META-INF/container.xml").async("string");
   })
-  .then(function(containerText){
+  .then(containerText=>{
     var xml=new DOMParser().parseFromString(containerText,"application/xml");
     var opfPath=xml.querySelector("rootfile").getAttribute("full-path");
     return zip.file(opfPath).async("string");
   })
-  .then(function(opfText){
+  .then(opfText=>{
     var xml=new DOMParser().parseFromString(opfText,"application/xml");
     var manifest={};
-    
+
     xml.querySelectorAll("manifest item").forEach(function(i){
       manifest[i.getAttribute("id")] = i.getAttribute("href");
     });
 
-    spine=[];
     xml.querySelectorAll("spine itemref").forEach(function(i){
       spine.push(manifest[i.getAttribute("idref")]);
     });
 
-    current=0;
     render();
   })
-  .catch(function(err){
-    reader.innerHTML="Failed to load book.";
-    console.log(err);
-  });
+  .catch(()=>reader.innerHTML="Failed to load book.");
 }
 
 function render(){
-  if(!spine[current]) return;
+  if(!spine[currentChapter]) return;
 
-  zip.file(spine[current]).async("string")
-  .then(function(content){
+  localStorage.setItem("lastChapter", currentChapter);
+
+  zip.file(spine[currentChapter]).async("string")
+  .then(content=>{
     reader.innerHTML=content;
     reader.scrollTop=0;
   });
 }
 
 document.getElementById("nextBtn").onclick=function(){
-  if(current<spine.length-1){current++;render();}
+  if(currentChapter<spine.length-1){currentChapter++;render();}
 };
 
 document.getElementById("prevBtn").onclick=function(){
-  if(current>0){current--;render();}
+  if(currentChapter>0){currentChapter--;render();}
+};
+
+document.getElementById("backBtn").onclick=function(){
+  reader.style.display="none";
+  topBar.style.display="none";
+  bookshelf.style.display="block";
+  header.textContent="EPUB Library";
+};
+
+document.getElementById("fontBtn").onclick=function(){
+  fontSize+=2;
+  if(fontSize>28) fontSize=14;
+  reader.style.fontSize=fontSize+"px";
+  localStorage.setItem("fontSize", fontSize);
+};
+
+document.getElementById("themeBtn").onclick=function(){
+  document.body.classList.toggle("light");
+  theme=document.body.classList.contains("light")?"light":"dark";
+  localStorage.setItem("theme", theme);
 };
 
 document.addEventListener("keydown",function(e){
-  if(e.key==="ArrowRight") document.getElementById("nextBtn").click();
-  if(e.key==="ArrowLeft") document.getElementById("prevBtn").click();
-  if(e.key==="ArrowUp") reader.scrollTop-=50;
-  if(e.key==="ArrowDown") reader.scrollTop+=50;
+  if(reader.style.display==="block"){
+    if(e.key==="ArrowRight") document.getElementById("nextBtn").click();
+    if(e.key==="ArrowLeft") document.getElementById("prevBtn").click();
+    if(e.key==="ArrowUp") reader.scrollTop-=50;
+    if(e.key==="ArrowDown") reader.scrollTop+=50;
+    if(e.key==="Backspace") document.getElementById("backBtn").click();
+  }
 });
 </script>
 
